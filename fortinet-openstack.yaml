@@ -1,0 +1,112 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/5.0.0/types.yaml
+  - plugin:cloudify-utilities-plugin
+  - plugin:cloudify-openstack-plugin?version= >=2.14.7 , <3
+
+inputs:
+  openstack-external-network:
+    type: string
+    description: >
+      the openstack network name or Id to connect for external management
+    default:  { get_secret: external_network_name }
+
+  portforward-port:
+    type: string
+    description: >
+     port to configure on the firewall
+    default:  5555
+
+  keystone-url:
+    type: string
+    description: >
+     openstack region
+    default:  { get_secret: keystone_url }
+
+node_templates:
+
+  openstack-network:
+    type: cloudify.nodes.ServiceComponent
+    properties:
+      resource_config:
+        blueprint:
+          external_resource: false
+          id: openstack-network-bp
+          blueprint_archive: https://github.com/arikyakir/openstack-example-network/archive/master.zip
+          main_file_name: simple-blueprint.yaml
+        deployment:
+          id: openstack-network
+          auto_inc_suffix: false
+          inputs:
+            external_network_name: { get_input: [ openstack-external-network ] }
+            auth_url: { get_input: keystone-url  }
+
+
+  nodecellar-app:
+    type: cloudify.nodes.ServiceComponent
+    properties:
+      resource_config:
+        blueprint:
+          external_resource: false
+          id: nodecller-app-bp
+        #  blueprint_archive: https://github.com/Cloudify-PS/nodecellar-blueprint/archive/master.zip
+          blueprint_archive: https://github.com/arikyakir/nodecellar-auto-scale-auto-heal-blueprint/archive/master.zip
+          main_file_name: openstack.yaml
+        deployment:
+          id: private-webserver
+          auto_inc_suffix: false
+          inputs:
+            network_blueprint_name: openstack-network-bp
+            network_blueprint_archive: https://github.com/arikyakir/openstack-example-network/archive/master.zip
+            network_deployment_name: openstack-network
+            network_blueprint_main_yaml: simple-blueprint.yaml
+            use_existing_network_deployment: true
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: openstack-network
+
+
+  fortigate-infra:
+    type: cloudify.nodes.ServiceComponent
+    properties:
+      resource_config:
+        blueprint:
+          external_resource: false
+          id: fortigate-vm-bp
+          blueprint_archive: https://github.com/arikyakir/fortigate-pf-vnf-blueprint/archive/master.zip
+          main_file_name: fortigate-vnf-baseline-bp.yaml
+        deployment:
+          id: fortigate-firewall
+          auto_inc_suffix: false
+          inputs:
+            network_blueprint_name: openstack-network-bp
+            network_blueprint_archive: https://github.com/arikyakir/openstack-example-network/archive/master.zip
+            network_deployment_name: openstack-network
+            network_blueprint_main_yaml: simple-blueprint.yaml
+            use_existing_network_deployment: true
+            flavor: { get_secret: small_image_flavor }
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: openstack-network
+
+
+  port-forwarding:
+    type: cloudify.nodes.ServiceComponent
+    properties:
+      resource_config:
+        blueprint:
+          external_resource: false
+          id: fortigate-config-bp
+          blueprint_archive: https://github.com/arikyakir/fortigate-pf-vnf-blueprint/archive/master.zip
+          main_file_name: fortigate-vnf-portforward-bp.yaml
+        deployment:
+          id: pf-config
+          auto_inc_suffix: false
+          inputs:
+            portforward_port: 5555
+            baseline-blueprint-name: fortigate-vm-bp
+            baseline-deployment-name: fortigate-firewall
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: fortigate-infra
