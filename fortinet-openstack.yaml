@@ -104,7 +104,7 @@ node_templates:
           id: pf-config
           auto_inc_suffix: false
           inputs:
-            portforward_port: 5555
+            portforward_port: { get_input: portforward-port }
             baseline-blueprint-name: fortigate-vm-bp
             baseline-deployment-name: fortigate-firewall
     relationships:
